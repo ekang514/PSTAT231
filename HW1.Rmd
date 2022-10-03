@@ -4,27 +4,164 @@ author: "Eunseo Kang"
 date: "2022-10-02"
 output: html_document
 ---
+```{r eval=FALSE, include=FALSE}
+install.packages("forcats")
+```
+# Machine Learning Main Ideas
 
-```{r setup, include=FALSE}
+## Question 1
+
+Define supervised and unsupervised learning. What are the difference(s) between them?
+
+
+* Supervised learning is the process of learning with the feedback from the observable outcomes. In this process, the machine can compare the predicted outcome and the real outcome, and can train from the direct feedback. On the other hand, unsupervised learning means that the machine cannot observe the real outcome and train without the intervention. Therefore, the machine rather finds the pattern by clustering unlabeled datasets.  
+
+## Question 2
+
+Explain the difference between a regression model and a classification model, specifically in the context of machine learning.
+
+* Regression model's outcome variable is continuous while classification model's outcomes are categorical. In the machine learning context, the regression model will predict a continuous outcome value while classification model will predict which category the predictors are explaining.
+
+## Question 3
+
+Name two commonly used metrics for regression ML problems. Name two commonly used metrics for classification ML problems.
+
+* Linear regression and regression tree (random forest) are two examples of regression ML model. Logistic regression and decision tree are two examples of classification ML model. 
+
+## Question 4
+
+As discussed, statistical models can be used for different purposes. These purposes can generally be classified into the following three categories. Provide a brief description of each.
+
+* Descriptive models: It chooses model to best visually emphasize a trend in data.
+
+* Inferential models: It cares about what features are significant and the aim is to test theories. It states the relationship between outcomes and predictors, and can possibly claim causal relationship.
+
+* Predictive models: It aims to predict the outcomes with minimum reducible error and doesn't focus on hypothesis tests. It focuses on the combination of features that can fit the outcome the best.
+
+## Question 5
+
+Predictive models are frequently used in machine learning, and they can usually be described as either mechanistic or empirically-driven. Answer the following questions.
+
+Define mechanistic. Define empirically-driven. How do these model types differ? How are they similar?
+
+* A mechanistic model uses a theory to predict what will happen in the real world while the empirically-driven model studies real-world events to develop a theory. They both describe 'how things are', but are different in that what is the starting point: a mechanistic model depends on a conceptual model of the system describing 'why they are that way' while an empirical model doesn't need a base about laws about the system's behavior. 
+
+In general, is a mechanistic or empirically-driven model easier to understand? Explain your choice.
+
+* I think a mechanistic model is easier to understand since it is based on a conceptual theory about how things would work. 
+
+Describe how the bias-variance tradeoff is related to the use of mechanistic or empirically-driven models.
+
+* As the model complexity of our procedure is increased, the variance tends to increase and the squared bias tends to decrease. Since an empirically-driven model needs more parameters and the model complexity increases, it will have low bias while having high variance. On the other hand, a mechanistic model uses fewer parameters and the model complexity is relatively simple, which comes with higher bias with lower variance. 
+
+## Question 6
+
+A political candidate’s campaign has collected some detailed voter history data from their constituents. The campaign is interested in two questions:
+
+Given a voter’s profile/data, how likely is it that they will vote in favor of the candidate?
+
+* predictive: The question is asking how the given data can predict the future behavior well.
+
+How would a voter’s likelihood of support for the candidate change if they had personal contact with the candidate?
+
+* inferential: The question wants to find a relationship with the real outcome and the predicted outcome produced from the model adopted, and want to test about whether they match or not under a certain hypothesis. 
+
+Classify each question as either predictive or inferential. Explain your reasoning for each.
+
+# Exploratory Data Analysis
+
+```{r setup, include=T}
+library(tidyverse) #collection of open source packages
+library(ggplot2) 
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
+## Exercise 1:
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+We are interested in highway miles per gallon, or the hwy variable. Create a histogram of this variable. Describe what you see/learn.
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+```{r}
+df <- data.frame(mpg)
+ggplot(df, aes(x=hwy))+geom_histogram()
 ```
 
-## Including Plots
+* Highway miles per gallon is concentrated between 15 and 30, and the range between 25-30 has the most frequency. The distribution is skewed to the right. 
 
-You can also embed plots, for example:
+## Exercise 2:
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+Create a scatterplot. Put hwy on the x-axis and cty on the y-axis. Describe what you notice. Is there a relationship between hwy and cty? What does this mean?
+
+```{r}
+ggplot(df, aes(x=hwy, y=cty))+geom_point()
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+* City miles per gallon and highway miles per gallon have positive linear relationship. It means cars with higher fuel efficiency on highway also have higher fuel efficiency in the city. 
+
+## Exercise 3:
+
+Make a bar plot of manufacturer. Flip it so that the manufacturers are on the y-axis. Order the bars by height. Which manufacturer produced the most cars? Which produced the least?
+
+```{r}
+ggplot(df, aes(x=fct_infreq(manufacturer)))+
+  geom_bar()+
+  coord_flip()+
+  labs(x="manufacturer")
+```
+* Dodge produced the most cars. Lincoln produced the least cars.
+
+## Exercise 4:
+
+Make a box plot of hwy, grouped by cyl. Do you see a pattern? If so, what?
+
+```{r}
+ggplot(df, aes(x=hwy, y=cyl, group=cyl))+
+  geom_boxplot()
+```
+* I see a patter that the less the number of cyliners is, the higher the fuel efficiency on highway is.
+
+## Exercise 5:
+
+Use the corrplot package to make a lower triangle correlation matrix of the mpg dataset. (Hint: You can find information on the package here.)
+
+Which variables are positively or negatively correlated with which others? Do these relationships make sense to you? Are there any that surprise you?
+```{r eval=F, include=T}
+install.packages("corrplot")
+
+```
+
+```{r}
+library(corrplot)
+M <- cor(df[sapply(df,is.numeric)])
+corrplot(M, type="lower")
+```
+* I can see positive correlation between year-engine displacement, number of cylinders-engine displacement, year-number of cylinders, city miles per gallon-highway miles per gallon. This make sense in that probably cars with more cylinders and displacement have been produced in more recent years and cylinders and engine displacement should be positively correlated. Furthermore, two fuel efficiency standards, city miles per gallon and highway miles per gallon, also should be positively correlated intuitively. These two standards of the fuel efficiency are negatively correlated with number of cylinders and engine displacement since cars with more cylinders and engine displacement are more likely to use more gas to run the cars. It was surprising that the fuel efficiency is not related to the year, which means there has been few upgrades in fuel efficiency in the recently produced cars.
+
+## Exercise 6:
+
+```{r eval=FALSE, include=T}
+install.packages("ggthemes")
+```
+
+```{r}
+library(ggthemes)
+ggplot(df, aes(y=hwy,x=class, group=class))+
+  geom_boxplot()+
+  labs(y="Highway MPG", x="Vehicle Class") +
+  geom_dotplot(binaxis='y',stackdir='center', stackratio=3, dotsize=0.4, fill="#90A4AE", alpha = 0.3) + coord_flip()+
+  theme_gdocs()
+```
+## Exercise 7:
+
+```{r}
+df %>% 
+  ggplot(aes(y=hwy,x=class, fill=drv))+
+  geom_boxplot()
+```
+## Exercise 8:
+
+```{r}
+df %>% 
+  ggplot(aes(y=hwy,x=displ, group=drv, color=drv, linetype=drv))+
+  geom_point()+
+  geom_smooth(se=F, colour="blue")
+```
