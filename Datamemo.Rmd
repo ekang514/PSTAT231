@@ -1,0 +1,60 @@
+---
+title: "Datamemo"
+author: "Eunseo Kang"
+date: "2022-10-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## An overview of your dataset
+
+* What does it include?
+  + It includes the information about whether and when parents are divorced, all the information about parents, and information about their children's education, employment and other background data. 
+
+* Where and how will you be obtaining it? Include the link and source.
+  + The data source is National Longitudinal Surveys. The link is:  https://www.nlsinfo.org/content/cohorts/nlsy79-children/topical-guide
+
+* About how many observations? How many predictors?
+  + Based on the preliminary-downloaded data file, the number of observation of parents are 12686 from the year 1972 to year 2019. There are many candidate predictors more than 15 in the data file and the final number of predictors will be decided depending on which predictors I will include. Tentatively, I am thinking of including year of the survey, residence state, parental marriage status, parental highest education level, age, income, year when the marriage ended, substance usage, race,educational expenditure, age of child, gender of child, birth order of child, grade of child at child assessment date, whether father lives in the household etc.
+  
+* What types of variables will you be working with?
+  + The outcome variable will be continuous variable such as children's assessment result or health outcomes. Some of predictors will be categorical variables such as race or state of the residence. It will be included in the anlaysis as a dummy variable.
+ 
+* Is there any missing data? About how much? Do you have an idea for how to handle it?
+  + I haven't downloaded the full data, therefore, have no exact information about the missing data. However, I am sure there will be some missing data for some background information for parents and children. I plan to make missing'certain variable' dummy=1 if that variable is missing and replace the missing data to zero. In this way, I don't have to drop observations with some missing information at the same time it is possible to capture the difference between missing/non-missing data and between the value of the variable among non-missing data points. 
+ 
+## An overview of your research question(s)
+* What variable(s) are you interested in predicting? What question(s) are you interested in answering?
+  + Variables what I am interested in predicting is 1. children's assessment results and 2. children's health outcomes. My research question is how these two variables can be predicted from parent's divorce status and other background characteristics. 
+ 
+* Name your response/outcome variable(s) and briefly describe it/them.
+  + Peabody Individual Achievement Test (PIAT) Math - (American Guidance Service), a PIAT subtest that offers a wide-range measure of achievement in mathematics for children with a PPVT age of five years or older
+  + PIAT Reading Recognition and Reading Comprehension - (American Guidance Service), PIAT subtests that assess the attained reading knowledge and comprehension of children with a PPVT age of five and older.
+  + Physical, emotional, or mental condition requiring: treatment, medicine, or special equipment
+  + Number of illnesses requiring medical attention or treatment
+  + Height and body weight of child
+  + Behavior Problems Index (4+ years)
+  + Cigarette use; age first smoked; frequency
+  + Alcohol use; age first drank; frequency
+  + Marijuana use; age first used; frequency
+ 
+* Will these questions be best answered with a classification or regression approach?
+  + The questions with continuous outcome variable such as test results and numerical health status are best answered with a regression approach. However, there are some categorical outcome variables such as 'whether children have certain problem' and this question should be answered by classification approach. 
+ 
+* Which predictors do you think will be especially useful?
+  + As I already mentioned, I will include year of the survey, residence state, parental marriage status, parental highest education level, age, income, year when the marriage ended, substance usage, race,educational expenditure, age of child, gender of child, birth order of child, grade of child at child assessment date, whether father lives in the household etc as predictors.
+ 
+* Is the goal of your model descriptive, predictive, inferential, or a combination? Explain.
+  + My goal of the model is the combination of all three. First, I want to describe the the relationship of child's outcomes and parental background to understand the data better. Second, I want to set up a model that can possibly predict child's outcome with the predictors. Finally, my ultimate goal is to test whether the age at parental divorce affects the children's outcomes. I need an advanced empirical strategy to derive the causal relationship and test for the hypothesis, therefore, the final step is beyond the scope of this project.
+
+## Your proposed project timeline
+* When do you plan on having your data set loaded, beginning your exploratory data analysis, etc?
+  + I plan to start data downloading, cleaning, and exploring by the end of October. 
+ 
+* Provide a general timeline for the rest of the quarter.
+  + End of October: Downloading the data and wrangling, EDA
+  + First half of November: Set up a preliminary model that predicts the outcomes
+  + Second half of November: Writing up a report
