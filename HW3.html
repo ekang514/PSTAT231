@@ -1953,9 +1953,21 @@ z(p)=ln\left(\frac{p}{1-p}\right)
 logistic(z)\)</span>. How do the odds of the outcome change if you
 increase <span class="math inline">\(x_{1}\)</span> by two? Demonstrate
 this.</p>
+<ul>
+<li>The odds of the outcome change when <span class="math inline">\(x_{1}\)</span> increases by two is <span class="math inline">\(e^{2*\beta_{1}}\)</span>.</li>
+</ul>
 <p>Assume now that <span class="math inline">\(\beta_1\)</span> is
 negative. What value does <span class="math inline">\(p\)</span>
 approach as <span class="math inline">\(x_{1}\)</span> approaches <span class="math inline">\(\infty\)</span>? What value does <span class="math inline">\(p\)</span> approach as <span class="math inline">\(x_{1}\)</span> approaches <span class="math inline">\(-\infty\)</span>?</p>
+<ul>
+<li>Since <span class="math inline">\(\frac{p}{1-p}=e^{\beta_0 +
+\beta_{1}x_{1}}\)</span>, when <span class="math inline">\(\beta_1\)</span> is negative and <span class="math inline">\(x_{1}\)</span> approaches <span class="math inline">\(\infty\)</span>, the right hand side approaches
+zero, which means <span class="math inline">\(p\)</span> also approaches
+zero. On the other hand, when <span class="math inline">\(\beta_1\)</span> is negative and <span class="math inline">\(x_{1}\)</span> approaches <span class="math inline">\(-\infty\)</span>, the right hand side approaches
+infinity, which means that <span class="math inline">\(p\)</span> also
+approaches 1 so that the denominator in the lefthand side approaches
+zero.</li>
+</ul>
 </div>
 </div>
 
