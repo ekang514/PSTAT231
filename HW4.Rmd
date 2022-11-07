@@ -1,23 +1,33 @@
 ---
 title: "Homework 4"
-author: "PSTAT 131/231"
+author: "Eunseo Kang"
 output:
-    html_document:
-      toc: true
-      toc_float: true
-      code_folding: show
+  html_document:
+    toc: yes
+    toc_float: yes
+    code_folding: show
+  pdf_document:
+    toc: yes
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, message = FALSE,
                       warning = FALSE)
+library(tidymodels)
+library(tidyverse)
+library(discrim)
+library(poissonreg)
+library(corrr)
+library(klaR) # for naive bayes
+library(ggplot2)
+tidymodels_prefer()
+rm(list=ls())
 ```
+
 
 ## Resampling
 
 For this assignment, we will continue working with part of a [Kaggle data set](https://www.kaggle.com/c/titanic/overview) that was the subject of a machine learning competition and is often used for practicing ML models. The goal is classification; specifically, to predict which passengers would survive the [Titanic shipwreck](https://en.wikipedia.org/wiki/Titanic).
-
-![Fig. 1: RMS Titanic departing Southampton on April 10, 1912.](images/RMS_Titanic.jpg){width="363"}
 
 Load the data from `data/titanic.csv` into *R* and familiarize yourself with the variables it contains using the codebook (`data/titanic_codebook.txt`).
 
@@ -29,17 +39,55 @@ Make sure you load the `tidyverse` and `tidymodels`!
 
 Create a recipe for this dataset **identical** to the recipe you used in Homework 3.
 
+```{r}
+data <- read.csv('data/titanic.csv')
+data$survived <- factor(data$survived, levels=c("Yes","No"))
+data$pclass <- factor(data$pclass)
+```
 ### Question 1
 
 Split the data, stratifying on the outcome variable, `survived.`  You should choose the proportions to split the data into. Verify that the training and testing data sets have the appropriate number of observations. 
+
+```{r}
+set.seed(514222)
+
+titanic_split <- initial_split(data, prop = 0.70, strata = survived)
+titanic_train <- training(titanic_split)
+titanic_test <- testing(titanic_split)
+
+titanic_split
+dim(titanic_train)
+dim(titanic_test)
+```
+
+* The training and testing data sets have the appropriate number of observations. The proportion of training data is `r 623/891`, which is approximately 0.7.
+
+```{r}
+#Creating an identical recipe with HW3
+unique(titanic_train$sex) %>% sort()
+
+titanic_recipe <- recipe(survived ~ pclass+sex+age+sib_sp+parch+fare, data = titanic_train) %>% 
+  step_impute_linear(age) %>%  
+  step_dummy(sex) %>% 
+  step_interact(terms=~fare:starts_with("sex")+age:starts_with("sex")) %>% 
+  step_poly(degree = tune())
+```
+
+
 
 ### Question 2
 
 Fold the **training** data. Use *k*-fold cross-validation, with $k = 10$.
 
+```{r}
+titanic_folds <- vfold_cv(titanic_train, v = 10)
+titanic_folds
+```
 ### Question 3
 
 In your own words, explain what we are doing in Question 2. What is *k*-fold cross-validation? Why should we use it, rather than simply fitting and testing models on the entire training set? If we **did** use the entire training set, what resampling method would that be?
+
+* It would be ideal to set aside a validation set and use it to assess the performance of our prediction model. However, since data are often scarce, this is usually not possible. In this case, *k*-fold cross-validation uses part of the available data to fit the model, and a different part to test it. In question 2, what we are doing is to make 10 partitions, where we fit the model using 9 parts out of them and calculate the prediction error of the fitted model when predicting the one left part of the data. We do this 10 times for each part and combine the 10 estimates of prediction error. If we use the entire training set, then we are just using validation method. 
 
 ### Question 4
 
@@ -51,27 +99,122 @@ Set up workflows for 3 models:
 
 How many models, total, across all folds, will you be fitting to the data? To answer, think about how many folds there are, and how many models you'll fit to each fold.
 
+```{r}
+#logistic
+log_fit <- logistic_reg() %>% 
+  set_engine("glm") %>% 
+  set_mode("classification") 
+  
+log_wkflow <- workflow() %>% 
+  add_model(log_fit) %>% 
+  add_recipe(titanic_recipe)
+
+#lda
+lda_mod <- discrim_linear() %>% 
+  set_mode("classification") %>% 
+  set_engine("MASS")
+
+lda_wkflow <- workflow() %>% 
+  add_model(lda_mod) %>% 
+  add_recipe(titanic_recipe)
+
+#qda
+qda_mod <- discrim_quad() %>% 
+  set_mode("classification") %>% 
+  set_engine("MASS")
+
+qda_wkflow <- workflow() %>% 
+  add_model(qda_mod) %>% 
+  add_recipe(titanic_recipe)
+
+
+```
+
+* Since there are 10 folds for each model, and since there are 3 models, I will totally fit 30 (multiplication of 3 and 10) models to the data. 
+
 ### Question 5
 
 Fit each of the models created in Question 4 to the folded data.
 
-**IMPORTANT:** *Some models may take a while to run – anywhere from 3 to 10 minutes. You should NOT re-run these models each time you knit. Instead, run them once, using an R script, and store your results; look into the use of [loading and saving](https://www.r-bloggers.com/2017/04/load-save-and-rda-files/). You should still include the code to run them when you knit, but set `eval = FALSE` in the code chunks.*
+**IMPORTANT:** *Some models may take a while to run- anywhere from 3 to 10 minutes. You should NOT re-run these models each time you knit. Instead, run them once, using an R script, and store your results; look into the use of [loading and saving](https://www.r-bloggers.com/2017/04/load-save-and-rda-files/). You should still include the code to run them when you knit, but set `eval = FALSE` in the code chunks.*
+
+```{r}
+degree_grid <- grid_regular(degree(range = c(1, 10)), levels = 10)
+degree_grid
+```
+
+```{r, eval=FALSE}
+
+#logit
+tune_log <- tune_grid(
+  object = log_wkflow, 
+  resamples = titanic_folds, 
+  grid = degree_grid)
+
+#lda
+tune_lda <- tune_grid(
+  object = lda_wkflow, 
+  resamples = titanic_folds, 
+  grid = degree_grid)
+
+#qda
+tune_qda <- tune_grid(
+  object = qda_wkflow, 
+  resamples = titanic_folds, 
+  grid = degree_grid
+)
+save(tune_log, tune_lda, tune_qda, file = "mydata.rda")
+```
+
 
 ### Question 6
 
 Use `collect_metrics()` to print the mean and standard errors of the performance metric *accuracy* across all folds for each of the four models.
 
+```{r}
+load(file = "mydata.rda")
+
+collect_metrics(tune_log)
+
+collect_metrics(tune_lda)
+
+collect_metrics(tune_qda)
+```
+
+
 Decide which of the 3 fitted models has performed the best. Explain why. *(Note: You should consider both the mean accuracy and its standard error.)*
+
+* Mean accuracy for logit model is 0.82 and standard error is 0.017. Mean accuracy for lda model is 0.81 and standard error is 0.016. Mean accuracy for qda model is 0.78 and standard error is 0.015. While there are almost no variation in standard errors, logit model shows the highest mean accuracy rate, therefore, logit model is chosen.  
+
 
 ### Question 7
 
-Now that you’ve chosen a model, fit your chosen model to the entire training dataset (not to the folds).
+Now that you have chosen a model, fit your chosen model to the entire training dataset (not to the folds).
+
+```{r}
+best_degree <- select_by_one_std_err(tune_log, degree, metric = "accuracy")
+final_wf <- finalize_workflow(log_wkflow, best_degree)
+final_fit <- fit(final_wf, titanic_train)
+final_fit
+```
+
 
 ### Question 8
 
-Finally, with your fitted model, use `predict()`, `bind_cols()`, and `accuracy()` to assess your model’s performance on the testing data!
+Finally, with your fitted model, use `predict()`, `bind_cols()`, and `accuracy()` to assess your model's performance on the testing data!
 
-Compare your model’s testing accuracy to its average accuracy across folds. Describe what you see.
+```{r}
+log_predict <- predict(final_fit, new_data = titanic_test, type = "prob")
+
+log_reg_acc <- augment(final_fit, new_data = titanic_test) %>%
+  accuracy(truth = survived, estimate = .pred_class)
+log_reg_acc
+```
+
+
+Compare your model's testing accuracy to its average accuracy across folds. Describe what you see.
+
+*The average accuracy across folds for the logit model was 0.82 while the same for the testing data set is 0.77, which is lower. It is consistent with the expectation that the accuracy for the training data would be higher since the model is fitted based on the training data set. 
 
 ## Required for 231 Students
 
@@ -87,6 +230,16 @@ where $\beta$ is the parameter that we want to estimate. Suppose that we have $n
 
 Derive the least-squares estimate of $\beta$.
 
+$$\hat{\beta}=arg_\beta min \sum^n_{i=1} \epsilon_i^2$$
+$$=min \sum^n_{i=1}(Y_i -\beta)^2$$
+
+$$FOC) -2 \sum (Y_i-\hat{\beta}) =0 $$
+$$\therefore \sum Y_i = n \hat{\beta} $$
+$$\hat{\beta}=\bar{Y}$$
+
+
 ### Question 10
 
 Suppose that we perform leave-one-out cross-validation (LOOCV). Recall that, in LOOCV, we divide the data into $n$ folds. What is the covariance between $\hat{\beta}^{(1)}$, or the least-squares estimator of $\beta$ that we obtain by taking the first fold as a training set, and $\hat{\beta}^{(2)}$, the least-squares estimator of $\beta$ that we obtain by taking the second fold as a training set?
+
+* The covariance is going to be zero since each estimates is going to follow the uncorrelated distribution since the each error is uncorrelated. 
