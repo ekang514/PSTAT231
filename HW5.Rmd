@@ -1,6 +1,6 @@
 ---
 title: "Homework 5"
-author: "PSTAT 131/231"
+author: "Eunseo Kang"
 output:
     html_document:
       toc: true
@@ -13,6 +13,13 @@ knitr::opts_chunk$set(echo = TRUE, message = FALSE,
                       warning = FALSE)
 ```
 
+```{r}
+library(tidymodels)
+library(tidyverse)
+library(glmnet)
+library(ggplot2)
+tidymodels_prefer()
+```
 ## Elastic Net Tuning
 
 For this assignment, we will be working with the file `"pokemon.csv"`, found in `/data`. The file is from Kaggle: <https://www.kaggle.com/abcsds/pokemon>.
@@ -21,7 +28,7 @@ The [Pokémon](https://www.pokemon.com/us/) franchise encompasses video games, T
 
 Each Pokémon has a [primary type](https://bulbapedia.bulbagarden.net/wiki/Type) (some even have secondary types). Based on their type, a Pokémon is strong against some types, and vulnerable to others. (Think rock, paper, scissors.) A Fire-type Pokémon, for example, is vulnerable to Water-type Pokémon, but strong against Grass-type.
 
-![Fig 1. Vulpix, a Fire-type fox Pokémon from Generation 1.](images/vulpix.png){width="196"}
+![Fig 1. Vulpix, a Fire-type fox Pokémon from Generation 1.](C:/Users/Eunseo/iCloudDrive/Fifth Year(Fall)/PSTAT231/homework-5/homework-5/images/vulpix.png){width="196"}
 
 The goal of this assignment is to build a statistical learning model that can predict the **primary type** of a Pokémon based on its generation, legendary status, and six battle statistics.
 
@@ -30,6 +37,16 @@ Read in the file and familiarize yourself with the variables using `pokemon_code
 ### Exercise 1
 
 Install and load the `janitor` package. Use its `clean_names()` function on the Pokémon data, and save the results to work with for the rest of the assignment. What happened to the data? Why do you think `clean_names()` is useful?
+
+```{r}
+#install.packages("janitor")
+library(janitor)
+data <- read.csv('data/Pokemon.csv') %>% 
+  clean_names()
+head(data)
+```
+
+* When I apply clean_names(), it changes all capital letters to lower cases and change all periods to underscores so that there is minimized complication in terms for variables.
 
 ### Exercise 2
 
@@ -41,11 +58,42 @@ For this assignment, we'll handle the rarer classes by simply filtering them out
 
 After filtering, convert `type_1` and `legendary` to factors.
 
+```{r}
+p <- ggplot(data, aes(type_1))+
+  geom_bar()
+p
+```
+
+* There are 18 types of type_1. Type 'Flying' has very few Pokemon. 
+
+```{r}
+data2 <- data %>% 
+  filter(type_1=="Bug"|type_1=="Fire"|type_1=="Grass"|type_1=="Normal"|type_1=="Water"|type_1=="Psychic") 
+head(data2)
+data2$type_1 <- as.factor(data2$type_1)
+data2$legendary <- as.factor(data2$legendary)
+
+```
+
 ### Exercise 3
 
 Perform an initial split of the data. Stratify by the outcome variable. You can choose a proportion to use. Verify that your training and test sets have the desired number of observations.
 
 Next, use *v*-fold cross-validation on the training set. Use 5 folds. Stratify the folds by `type_1` as well. *Hint: Look for a `strata` argument.* Why might stratifying the folds be useful?
+
+```{r}
+set.seed(514222)
+Pokemon_split <- initial_split(data2, strata = "type_1", prop=0.7)
+
+Pokemon_train <- training(Pokemon_split)
+Pokemon_test <- testing(Pokemon_split)
+
+dim(Pokemon_train)
+dim(Pokemon_test)
+
+Pokemon_fold <- vfold_cv(Pokemon_train, v = 5, strata= "type_1")
+```
+* The training and testing data sets have the appropriate number of observations. The proportion of training data is `r 318/(318+140)`, which is approximately 0.7. Stratifying the folds is useful when we concern about bias due to class imbalance. Stratifying can avoid the problem coming from that certain type of Pokemon has relatively small numbers of counts. 
 
 ### Exercise 4
 
@@ -55,6 +103,18 @@ Set up a recipe to predict `type_1` with `legendary`, `generation`, `sp_atk`, `a
 
 - Center and scale all predictors.
 
+```{r}
+Pokemon_recipe <- 
+  recipe(formula = type_1 ~ legendary+generation+sp_atk+attack+speed+defense+hp+sp_def, data = Pokemon_train) %>% 
+  step_novel(all_nominal_predictors()) %>% 
+  step_dummy(legendary,generation) %>% 
+  step_zv(all_predictors()) %>% 
+  step_normalize(all_predictors())
+```
+
+
+
+
 ### Exercise 5
 
 We'll be fitting and tuning an elastic net, tuning `penalty` and `mixture` (use `multinom_reg` with the `glmnet` engine).
@@ -63,15 +123,61 @@ Set up this model and workflow. Create a regular grid for `penalty` and `mixture
 
 How many total models will you be fitting when you fit these models to your folded data?
 
+```{r}
+Pokemon_spec <- 
+  multinom_reg(penalty = tune(), mixture = tune()) %>% 
+  set_mode("classification") %>% 
+  set_engine("glmnet")
+
+Pokemon_workflow <- workflow() %>% 
+  add_recipe(Pokemon_recipe) %>% 
+  add_model(Pokemon_spec)
+
+grid <- grid_regular(penalty(range = c(-5, 5)), mixture(range = c(0, 1)), levels = c( penalty = 10, mixture = 10))
+
+```
+
+* I have 5 folds and there are going to be 10 levels for penalty and misture, respectively. ThereforeI will fit 5x10x10=500 models. 
+
 ### Exercise 6
 
 Fit the models to your folded data using `tune_grid()`.
 
 Use `autoplot()` on the results. What do you notice? Do larger or smaller values of `penalty` and `mixture` produce better accuracy and ROC AUC?
 
+```{r, eval=FALSE}
+tune_res <- tune_grid(
+  Pokemon_workflow,
+  resamples = Pokemon_fold, 
+  grid = grid
+)
+
+save(tune_res, file = "hw5.rda")
+
+```
+
+```{r}
+load(file = "hw5.rda")
+autoplot(tune_res)
+```
+
+* It is noticed that smaller value of penalty than zero results in better accuracy and ROC AUC, and smaller value of Lasso penalty generates better accuracy and ROC AUC when controlling the penalty level. 
+
 ### Exercise 7
 
 Use `select_best()` to choose the model that has the optimal `roc_auc`. Then use `finalize_workflow()`, `fit()`, and `augment()` to fit the model to the training set and evaluate its performance on the testing set.
+
+```{r}
+best <- select_best(tune_res, metric = "roc_auc")
+Pokemon_final <- finalize_workflow(Pokemon_workflow, best)
+
+Pokemon_final_fit <- fit(Pokemon_final, data = Pokemon_train)
+
+augment(Pokemon_final_fit, new_data = Pokemon_test)%>%
+  conf_mat(truth = type_1, estimate = .pred_class) 
+```
+
+* The model seems work so-so well since it predicts the type for Bug, Normal, Psychic, and Water correctly with the majority of times. However, it seems not working well when predicting Fire and Grass types. 
 
 ### Exercise 8
 
@@ -81,9 +187,50 @@ Then create plots of the different ROC curves, one per level of the outcome. Als
 
 What do you notice? How did your model do? Which Pokemon types is the model best at predicting, and which is it worst at? Do you have any ideas why this might be?
 
+```{r}
+augment(Pokemon_final_fit, new_data = Pokemon_test) %>%
+  roc_auc(type_1, .pred_Bug:.pred_Water)
+
+augment(Pokemon_final_fit, new_data = Pokemon_test)%>%
+  roc_curve(type_1, .pred_Bug:.pred_Water) %>%
+  autoplot()
+
+augment(Pokemon_final_fit, new_data = Pokemon_test)%>%
+  conf_mat(truth = type_1, estimate = .pred_class) %>% 
+  autoplot(type="heatmap")
+```
+
+
+* The overall ROC AUC on testing set is 0.7139001. The model works pretty well except Fire and Grass types. The Normal type is best for predicting. The worst things are Fire and Grass. The reason could be that the weight for Water is so high that there are too many false results predicting Water even though truth is either Fire or Grass. 
+
 ## For 231 Students
 
 ### Exercise 9
 
-In the 2020-2021 season, Stephen Curry, an NBA basketball player, made 337 out of 801 three point shot attempts (42.1%). Use bootstrap resampling on a sequence of 337 1’s (makes) and 464 0’s (misses). For each bootstrap sample, compute and save the sample mean (e.g. bootstrap FG% for the player). Use 1000 bootstrap samples to plot a histogram of those values. Compute the 99% bootstrap confidence interval for Stephen Curry’s “true” end-of-season
-FG% using the quantile function in R. Print the endpoints of this interval.
+In the 2020-2021 season, Stephen Curry, an NBA basketball player, made 337 out of 801 three point shot attempts (42.1%). Use bootstrap resampling on a sequence of 337 1's (makes) and 464 0's (misses). For each bootstrap sample, compute and save the sample mean (e.g. bootstrap FG% for the player). Use 1000 bootstrap samples to plot a histogram of those values. Compute the 99% bootstrap confidence interval for Stephen Curry's "true" end-of-season FG% using the quantile function in R. Print the endpoints of this interval.
+
+```{r}
+library(boot)
+curry <- c(rep(1,337),rep(0,464))
+
+fc <- function(curry,i){
+  d2 <- curry[i]
+  return(mean(d2))
+}
+
+
+set.seed(514222)
+boot_res <- boot(curry,fc,R=1000)
+plot(boot_res)
+
+#confidence interval not using quantile function
+boot.ci(boot_res, conf=0.99, type="all")
+
+#confidence interval using quantile function
+#lower endpoint of CI
+quantile(boot_res$t, .005)
+#upper endpoint of CI
+quantile(boot_res$t, .995)
+```
+
+
