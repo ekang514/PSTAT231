@@ -285,7 +285,7 @@ rf_wf <- workflow() %>%
   add_recipe(recipe) %>% 
   add_model(rf_spec)
 
-grid3 <- grid_regular(mtry(range = c(1, 5)), levels = c(penalty = 5))
+grid3 <- grid_regular(mtry(range = c(1, 5)), levels = c(mtry = 3))
 ```
 
 Now I should show which values of mtry appear to produce the highest ROC_AUC.
@@ -344,7 +344,7 @@ boost_wf <- workflow %>%
   add_recipe(recipe) %>% 
   add_model(boost_spec)
 
-grid4 <- grid_regular(penalty(range = c(1000, 3000)), levels = c(penalty = 3))
+grid4 <- grid_regular(trees(range = c(1000, 3000)), levels = c(trees = 3))
 ```
 
 Now I should show which values of tree appear to produce the highest ROC_AUC.
