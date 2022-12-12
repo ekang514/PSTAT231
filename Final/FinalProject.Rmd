@@ -1,30 +1,153 @@
 ---
-title: "Final Project"
+title: "Final Project: Prediction of a Child's Health Status"
 author: "Eunseo Kang"
-date: "2022-12-08"
-output: html_document
+date: "2022-12-11"
+output: 
+  html_document:
+    number_sections: true
+    code_folding: show
+
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, message = FALSE,
+                      warning = FALSE)
 ```
 
-## R Markdown
+![](image.png)
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+```{r}
+library(janitor)
+library(tidymodels)
+library(tidyverse)
+library(glmnet)
+library(ggplot2)
+library(readr)
+library(corrr)
+library(corrplot)
+library(naniar)
+library(visdat)
+library(dplyr)
+library(tune)
+tidymodels_prefer()
+set.seed(514222)
+```
+# Introduction
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+It is the core of interest for most parents, policy makers, and even for a child herself that how one individual's health outcomes are affected by various factors from home environment. In this project, I would like to predict a child's health status using predictors that describes family backgrounds using NHIS(National Health Interview Survey) ranging from 1999-2018.  
 
-```{r cars}
-summary(cars)
+My main outcome of interest is the health status of a child, which is a categorical variable. It is either excellent, very good, good, fair, or poor. There are less than 1000 missing data in this outcome, and I dropped them. 
+
+# Data 
+
+I restricted the sample to those who are under age 18 to predict a child who resides with either parent. The number of sample observations are 328,309. I have 18 predictors and they are year, sex, age, race, mother's marital status, father's marital status, number of persons in family, parent present in the family, education of mother, education of father, US citizenship, educational attainment, above or below poverty threshold, total combined family income, any family member received food stamp, home ownership, health insurance coverage status, whether received special education or early intervention services. First, I import this NHIS data.
+
+```{r}
+data <- read.csv('data/health.csv',sep = ',',colClasses=c('numeric','numeric','factor','numeric','factor','factor','factor','factor','factor','factor','factor', 'factor', 'factor','factor','factor','factor','factor','factor','factor'), na.strings = "NA") %>% 
+  clean_names() %>% 
+  data.frame()
+data <- na_if(data,'')
+summary(data)
 ```
 
-## Including Plots
+## Exploratory Data Analysis
+Before doing modeling, EDA is done to see to have some sense how the data and distribution looks like, whether there are missing values in some variables, and whether there are any correlations.
 
-You can also embed plots, for example:
+First, I want to look at the distribution of the main outcome of interest. Health Status 'excellent' shows the most frequency and the frequency decreases as the health status gets worse. 
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+```{r}
+data %>% 
+  ggplot(aes(x =fct_infreq(health))) +
+  geom_bar() +
+  coord_flip() +
+  labs(x="Health Status")
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+There are a few numerical variables such as year, age, and family size. Therefore, I draw a correlation plot to see the correlation between them. The correlation graph shows there is no relationship between these numerical variables, although I see very small positive relationship between age and family size. It makes sense since the more you are aged, the more likely you have another sibling. 
+```{r}
+data %>% 
+  select(is.numeric) %>% 
+  cor() %>% 
+  corrplot(type = "lower")
+```
+
+Next, I also want to see whether there are patterns in age and family size in different health outcome groups. Therefore, I decided to draw a box plot by categories of health outcomes. The results show that there are not much difference in age and family size distribution in different health outcomes.
+
+```{r}
+data %>%
+  ggplot() + 
+    geom_boxplot(mapping=aes(x = health, y = age))
+
+data %>%
+  ggplot() + 
+    geom_boxplot(mapping=aes(x = health, y = famsize))
+```
+
+Now, I check the missing data patterns on the training set.
+```{r}
+vis_dat(data, warn_large_data=F)
+```
+
+Thankfully, the proportion of missing observations is not big in each variable. Since all variables with missing data are categorical variable, I thought imputing the mode can cause bias. Therefore, rather than imputing, I decided to replace NA with zero since I am going to include nominal predictors as dummies anyway. 
+
+```{r}
+data <- data %>%replace(is.na(.), 0)
+```
+
+## Data Splitting
+
+I divide data into training and test sets with the proportion of 70% for the training set. I stratify the sample since the distribution of health status is skewed.
+
+```{r}
+data_split <- data %>% 
+  initial_split(strata = health, prop = 0.7)
+data_train <- training(data_split)
+data_test <- testing(data_split)
+dim(data_train)
+dim(data_test)
+```
+
+I can check that the data is appropriately divided into training and test sets by checking the dimensions.
+
+# Model Building and Results
+
+## Building Recipe
+
+When building a recipe, I create dummies for all nominal predictors and creat interaction terms of age and sex since I expect there can be difference in the effect of age or sex by the other factor as young children show different speed of growth based on their gender. 
+```{r}
+recipe <- recipe(health ~ ., data=data) %>% 
+  step_dummy(all_nominal_predictors()) %>% 
+  step_interact(~ starts_with("sex"):age + age:fare)
+```
+
+## Cross-validation to fold training set
+
+I create stratified CV using 5 folds with repeats. I stratified the folds by health status.
+```{r}
+data_folds <- vfold_cv(data_train, strata = health, 
+                          v = 5)
+```
+
+## Fitting model: Multinomial regression, Lasso, Random forest, and Boosted tree models
+
+### Multinomial regression
+
+```{r}
+elastic_net_spec <- multinom_reg(penalty = tune(), 
+                                 mixture = tune()) %>% 
+  set_mode("classification") %>% 
+  set_engine("glmnet")
+```
+
+### Lasso
+
+
+### Random Forest
+
+### Multinomial regression
+# Results of the Best Model
+
+## Visualization
+
+# Conclusion
+
