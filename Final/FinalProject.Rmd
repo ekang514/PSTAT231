@@ -29,6 +29,11 @@ library(naniar)
 library(visdat)
 library(dplyr)
 library(tune)
+library(rpart.plot)
+library(randomForest)
+library(vip)
+library(xgboost)
+library(parsnip)
 tidymodels_prefer()
 set.seed(514222)
 ```
@@ -40,12 +45,11 @@ My main outcome of interest is the health status of a child, which is a categori
 
 # Data 
 
-I restricted the sample to those who are under age 18 to predict a child who resides with either parent. The number of sample observations are 328,309. I have 18 predictors and they are year, sex, age, race, mother's marital status, father's marital status, number of persons in family, parent present in the family, education of mother, education of father, US citizenship, educational attainment, above or below poverty threshold, total combined family income, any family member received food stamp, home ownership, health insurance coverage status, whether received special education or early intervention services. First, I import this NHIS data.
+I restricted the sample to those who are under age 18 to predict a child who resides with either parent. The number of sample observations are 328,312. I have 18 predictors and they are year, sex, age, race, mother's marital status, father's marital status, number of persons in family, parent present in the family, education of mother, education of father, US citizenship, educational attainment, above or below poverty threshold, total combined family income, any family member received food stamp, home ownership, health insurance coverage status, whether received special education or early intervention services. First, I import this NHIS data.
 
 ```{r}
-data <- read.csv('data/health.csv',sep = ',',colClasses=c('numeric','numeric','factor','numeric','factor','factor','factor','factor','factor','factor','factor', 'factor', 'factor','factor','factor','factor','factor','factor','factor'), na.strings = "NA") %>% 
-  clean_names() %>% 
-  data.frame()
+data <- read.csv('data/health.csv',sep = ',') %>% 
+  clean_names()
 data <- na_if(data,'')
 summary(data)
 ```
@@ -88,11 +92,15 @@ Now, I check the missing data patterns on the training set.
 vis_dat(data, warn_large_data=F)
 ```
 
-Thankfully, the proportion of missing observations is not big in each variable. Since all variables with missing data are categorical variable, I thought imputing the mode can cause bias. Therefore, rather than imputing, I decided to replace NA with zero since I am going to include nominal predictors as dummies anyway. 
+Thankfully, the proportion of missing observations is not big in each variable. Since all variables with missing data are categorical variable, I thought imputing can cause bias. Therefore, rather than imputing, I decided to change this missing value to zero since anyway I will include them as dummies in the prediction models. Since my main outcome health status is factor and year is also going to be considered as factor, I transformed the type of variable to factor.
 
 ```{r}
-data <- data %>%replace(is.na(.), 0)
+data[is.na(data)] <- 0
+summary(data)
+data$health <- as.factor(data$health)
+data$year <- as.factor(data$year)
 ```
+
 
 ## Data Splitting
 
@@ -113,41 +121,299 @@ I can check that the data is appropriately divided into training and test sets b
 
 ## Building Recipe
 
-When building a recipe, I create dummies for all nominal predictors and creat interaction terms of age and sex since I expect there can be difference in the effect of age or sex by the other factor as young children show different speed of growth based on their gender. 
+When building a recipe, I create dummies for all nominal predictors. 
+
 ```{r}
 recipe <- recipe(health ~ ., data=data) %>% 
-  step_dummy(all_nominal_predictors()) %>% 
-  step_interact(~ starts_with("sex"):age + age:fare)
+  step_dummy(all_nominal_predictors()) 
 ```
 
 ## Cross-validation to fold training set
 
-I create stratified CV using 5 folds with repeats. I stratified the folds by health status.
+I create stratified CV using 2 folds with repeats. The reason why I chose small number of folds is that it takes too long time due to large number of samples. I stratified the folds by health status.
 ```{r}
 data_folds <- vfold_cv(data_train, strata = health, 
-                          v = 5)
+                          v = 2)
 ```
 
-## Fitting model: Multinomial regression, Lasso, Random forest, and Boosted tree models
+## Fitting model: Elastic Net, Classification Tree, Random forest, and Boosted tree models
 
-### Multinomial regression
+In this section, I fit the data to four models: Elastic Net, Classification Tree, Random forest, and Boosted tree models, and choose which model shows the highest ROC_AUC of prediction. 
+
+### Elastic Net
+
+When fitting and tuning the elastic net model, I will tune parameters for penalty. I also set 5 level to save time. 
 
 ```{r}
-elastic_net_spec <- multinom_reg(penalty = tune(), 
-                                 mixture = tune()) %>% 
+elastic_net_spec <- multinom_reg(penalty = tune()) %>% 
   set_mode("classification") %>% 
   set_engine("glmnet")
+
+elastic_net_workflow <- workflow() %>% 
+  add_recipe(recipe) %>% 
+  add_model(elastic_net_spec)
+
+grid <- grid_regular(penalty(range = c(-5, -1)), levels = c(penalty = 5))
 ```
 
-### Lasso
+
+Now, I will fit the model using tune_grid(). 
+
+```{r, eval=FALSE}
+tune_res <- tune_grid(
+  elastic_net_workflow,
+  resamples = data_folds, 
+  grid = grid
+)
+
+save(tune_res, file = "model1.rda")
+
+```
+
+To see what values of penalty produce better result, I draw a plot using autoplot. 
+
+```{r}
+load(file = "model1.rda")
+autoplot(tune_res)
+```
+
+I will select the best model using select_best and fit the model. I also save the result separately since it takes long time.
+
+```{r}
+best1 <- select_best(tune_res)
+elastic_net_final <- finalize_workflow(elastic_net_workflow, best1)
+```
+
+```{r, eval=F}
+elastic_net_final_fit <- fit(elastic_net_final, data = data_train)
+save(elastic_net_final_fit, file="model1fit.rda")
+augment(elastic_net_final_fit, new_data = data_train)
+```
+
+Finally, to compare with the other model, I calculate the overall ROC_AUC on the training set. The ROC_AUC from the elastic net model is 0.6435718.
+
+```{r}
+load(file="model1fit.rda")
+augment(elastic_net_final_fit, new_data = data_train) %>% 
+  roc_auc(health, .pred_excellent:.pred_verygood) 
+```
+
+### Classification Tree
+
+My second model is Classification Tree model. 
+As the first step, I create a general decision tree specification as the engine with the mode of classification.
+
+```{r}
+tree_spec <- decision_tree() %>%
+  set_engine("rpart")
+
+class_tree_spec <- tree_spec %>%
+  set_mode("classification")
+```
+
+Now, I tune the cost_complexity of the decision tree to find an optimal complexity. I set up the workflow including the process of tuning.
+
+```{r}
+class_tree_wf <- workflow() %>%
+  add_model(class_tree_spec %>% set_args(cost_complexity = tune())) %>%
+  add_recipe(recipe)
+
+grid2 <- grid_regular(cost_complexity(range = c(-5, -1)), levels = c(cost_complexity = 5))
+```
+
+Now I should show which values of cost_complexity appear to produce the highest ROC_AUC.
+
+```{r, eval=F}
+tune_res2 <- tune_grid(
+  class_tree_wf, 
+  resamples = data_folds, 
+  grid = grid2 
+)
+
+save(tune_res2, file = "model2.rda")
+```
+
+```{r}
+load(file="model2.rda")
+autoplot(tune_res2)
+```
+
+I choose the best complexity, and finalize the workflow by updating the value and the fit the model with the full training data set.
+
+```{r}
+best2 <- select_best(tune_res2)
+
+class_tree_final <- finalize_workflow(class_tree_wf, best2)
+```
+
+```{r, eval=F}
+class_tree_final_fit <- fit(class_tree_final, data = data_train)
+save(class_tree_final_fit, file="model2fit.rda")
+```
+
+Lastly, I visualize this model.
+
+```{r}
+load(file="model2fit.rda")
+class_tree_final_fit %>%
+  extract_fit_engine() %>%
+  rpart.plot()
+```
+
+To compare with the other models, I derive the ROC_AUC based on the training model. The ROC_AUC from the classification tree model is 0.562356. 
+
+```{r}
+augment(class_tree_final_fit, new_data = data_train) %>%
+  roc_auc(health, .pred_excellent:.pred_verygood)
+```
 
 
 ### Random Forest
 
-### Multinomial regression
-# Results of the Best Model
+Here, I apply random forests. First, I set up the specification including the tuning process for mtry.
 
-## Visualization
+```{r}
+rf_spec <- rand_forest(mtry= tune()) %>%
+  set_engine("randomForest", importance = TRUE) %>%   
+  set_mode("classification")
+```
+
+Next, I set up the workflow adding the model. 
+
+```{r}
+rf_wf <- workflow() %>% 
+  add_recipe(recipe) %>% 
+  add_model(rf_spec)
+
+grid3 <- grid_regular(mtry(range = c(1, 5)), levels = c(penalty = 5))
+```
+
+Now I should show which values of mtry appear to produce the highest ROC_AUC.
+
+```{r, eval=F}
+tune_res3 <- tune_grid(
+  rf_wf, 
+  resamples = data_folds, 
+  grid = grid3
+)
+
+save(tune_res3, file="model3.rda")
+```
+
+```{r}
+load(file="model3.rda")
+autoplot(tune_res3)
+```
+
+I choose the best mtry, and finalize the workflow by updating the value and the fit the model with the full training data set.
+
+```{r}
+best3 <- select_best(tune_res3)
+
+rf_final <- finalize_workflow(rf_wf, best3)
+```
+
+```{r, eval=F}
+rf_final_fit <- fit(rf_final, data = data_train)
+save(rf_final_fit, file="model3fit.rda")
+```
+
+
+To compare with the other models, I derive the ROC_AUC based on the training model. 
+
+```{r}
+load(file="model3fit.rda")
+augment(rf_final_fit, new_data = data_train) %>%
+  roc_auc(health, .pred_excellent:.pred_verygood)
+```
+
+### Boosted Tree
+
+As the last model, I use Boosted tree model. I set up the specification including the tuning process for tree. I did not tune tree depth since it takes too long time and set it as 4.
+
+```{r}
+boost_spec <- boost_tree(trees= tune(), tree_depth = 4) %>%
+  set_engine("xgboost") %>%   
+  set_mode("classification")
+```
+
+Next, I set up the workflow adding the model. 
+
+```{r}
+boost_wf <- workflow %>% 
+  add_recipe(recipe) %>% 
+  add_model(boost_spec)
+
+grid4 <- grid_regular(penalty(range = c(1000, 3000)), levels = c(penalty = 3))
+```
+
+Now I should show which values of tree appear to produce the highest ROC_AUC.
+
+```{r, eval=F}
+tune_res4 <- tune_grid(
+  boost_wf, 
+  resamples = data_folds, 
+  grid = grid4
+)
+
+save(tune_res4, file="model4.rda")
+```
+
+```{r}
+load(file="model4.rda")
+autoplot(tune_res4)
+```
+
+I choose the best mtry, and finalize the workflow by updating the value and the fit the model with the full training data set.
+
+```{r}
+best4 <- select_best(tune_res4)
+
+boost_final <- finalize_workflow(boost_wf, best4)
+```
+
+```{r, eval=F}
+boost_final_fit <- fit(boost_final, data = data_train)
+save(boost_final_fit, file="model4fit.rda")
+```
+
+
+To compare with the other models, I derive the ROC_AUC based on the training model. 
+
+```{r}
+load(file="model4fit.rda")
+augment(boost_final_fit, new_data = data_train) %>%
+  roc_auc(health, .pred_excellent:.pred_verygood)
+```
+
+
+# Results of the Best Model and Performance
+
+The best model that shows the highest ROC_AUC is . Therefore, I fit this model to test set.
+```{r}
+augment(boost_final_fit, new_data = data_test) %>%
+  conf_mat(truth = health, estimate = .pred_class)
+
+augment(boost_final_fit, new_data = data_test) %>%
+  accuracy(truth = health, estimate = .pred_class)
+```
+
+I can also plot ROC curves, one per level of the outcome. 
+
+```{r}
+augment(boost_final_fit, new_data = data_test)%>%
+  roc_curve(health, .pred_excellent:.pred_verygood) %>%
+  autoplot()
+```
+
+In addition, I can draw a heatmap.
+
+```{r}
+augment(boost_final_fit, new_data = data_test)%>%
+  roc_curve(health, .pred_excellent:.pred_verygood) %>%
+  autoplot(type="heatmap")
+```
 
 # Conclusion
+Throughout the research, the best model to predict a child's health status using information about family background is a random forest, but it was not perfect.
 
