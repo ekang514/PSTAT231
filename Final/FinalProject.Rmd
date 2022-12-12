@@ -34,6 +34,8 @@ library(randomForest)
 library(vip)
 library(xgboost)
 library(parsnip)
+#install.packages("kknn")
+library(kknn)
 tidymodels_prefer()
 set.seed(514222)
 ```
@@ -136,9 +138,9 @@ data_folds <- vfold_cv(data_train, strata = health,
                           v = 2)
 ```
 
-## Fitting model: Elastic Net, Classification Tree, Random forest, and Boosted tree models
+## Fitting model: Elastic net, Classification Tree models, K-nearest neighbors, and boosted tree model.
 
-In this section, I fit the data to four models: Elastic Net, Classification Tree, Random forest, and Boosted tree models, and choose which model shows the highest ROC_AUC of prediction. 
+In this section, I fit the data to four models: Elastic net, Classification Tree models, K-nearest neighbors, and boosted tree model. Based on the result from this section, I will choose the model showing the highest ROC_AUC of prediction. Initially, I wanted to show the results of KNN model and boosted tree model, it took too much time, so I only include codes for them. 
 
 ### Elastic Net
 
@@ -187,10 +189,10 @@ elastic_net_final <- finalize_workflow(elastic_net_workflow, best1)
 ```{r, eval=F}
 elastic_net_final_fit <- fit(elastic_net_final, data = data_train)
 save(elastic_net_final_fit, file="model1fit.rda")
-augment(elastic_net_final_fit, new_data = data_train)
+
 ```
 
-Finally, to compare with the other model, I calculate the overall ROC_AUC on the training set. The ROC_AUC from the elastic net model is 0.6435718.
+Finally, to compare with the other model, I calculate the overall ROC_AUC on the training set. The ROC_AUC from the elastic net model is 0.6432633.
 
 ```{r}
 load(file="model1fit.rda")
@@ -235,6 +237,7 @@ save(tune_res2, file = "model2.rda")
 
 ```{r}
 load(file="model2.rda")
+
 autoplot(tune_res2)
 ```
 
@@ -260,7 +263,7 @@ class_tree_final_fit %>%
   rpart.plot()
 ```
 
-To compare with the other models, I derive the ROC_AUC based on the training model. The ROC_AUC from the classification tree model is 0.562356. 
+To compare with the other models, I derive the ROC_AUC based on the training model. The ROC_AUC from the classification tree model is 0.5878494.
 
 ```{r}
 augment(class_tree_final_fit, new_data = data_train) %>%
@@ -268,83 +271,82 @@ augment(class_tree_final_fit, new_data = data_train) %>%
 ```
 
 
-### Random Forest
+### K Nearest Neighbors Regression Model
 
-Here, I apply random forests. First, I set up the specification including the tuning process for mtry.
+Here, I apply K Nearest Neighbors Regression Model. First, I set up the specification including the tuning process for neighbors.
 
 ```{r}
-rf_spec <- rand_forest(mtry= tune()) %>%
-  set_engine("randomForest", importance = TRUE) %>%   
-  set_mode("classification")
+knn_spec <- 
+  nearest_neighbor() %>%
+  set_args(neighbors = tune()) %>% 
+  set_engine(engine = 'kknn') %>%
+  set_mode('classification')
 ```
 
-Next, I set up the workflow adding the model. 
-
+Next, I set up the workflow adding the model and recipe.
 ```{r}
-rf_wf <- workflow() %>% 
+knn_wkflow <- workflow() %>% 
   add_recipe(recipe) %>% 
-  add_model(rf_spec)
+  add_model(knn_spec)
 
-grid3 <- grid_regular(mtry(range = c(1, 5)), levels = c(mtry = 3))
+grid3 <- grid_regular(neighbors(range = c(1,5)), levels = 2)
 ```
 
-Now I should show which values of mtry appear to produce the highest ROC_AUC.
+Now, I tune the model with the grid ranging from 1 to 5 with the level of 2. I chose this small level since I had massive data and it took too much time. After running many hours, I actually failed to finish running other two models. I think I should either need more time, or decrease the number of samples. I include the codes that runs properly, but do not evaluate them to create the document.
 
 ```{r, eval=F}
-tune_res3 <- tune_grid(
-  rf_wf, 
+tune_knn <- tune_grid(
+  knn_wkflow, 
   resamples = data_folds, 
   grid = grid3
 )
-
-save(tune_res3, file="model3.rda")
-```
-
-```{r}
-load(file="model3.rda")
-autoplot(tune_res3)
-```
-
-I choose the best mtry, and finalize the workflow by updating the value and the fit the model with the full training data set.
-
-```{r}
-best3 <- select_best(tune_res3)
-
-rf_final <- finalize_workflow(rf_wf, best3)
+save(tune_knn, file="kknn.rda")
 ```
 
 ```{r, eval=F}
-rf_final_fit <- fit(rf_final, data = data_train)
-save(rf_final_fit, file="model3fit.rda")
+load(file="kknn.rda")
+autoplot(tune_knn)
 ```
 
+I choose the best neighbors, and finalize the workflow by updating the value and the fit the model with the full training data set.
+```{r, eval=F}
+bestknn <- select_best(tune_knn)
+
+knn_final <- finalize_workflow(knn_wkflow, bestknn)
+```
+
+```{r, eval=F}
+knn_final_fit <- fit(knn_final, data = data_train)
+save(knn_final_fit, file="knnfit.rda")
+```
 
 To compare with the other models, I derive the ROC_AUC based on the training model. 
 
-```{r}
-load(file="model3fit.rda")
-augment(rf_final_fit, new_data = data_train) %>%
+```{r, eval=F}
+load(file="knnfit.rda")
+augment(knn_final_fit, new_data = data_train) %>%
   roc_auc(health, .pred_excellent:.pred_verygood)
 ```
 
+
 ### Boosted Tree
 
-As the last model, I use Boosted tree model. I set up the specification including the tuning process for tree. I did not tune tree depth since it takes too long time and set it as 4.
+As the last model, I use Boosted tree model. I set up the specification including the tuning process for min_n.
 
 ```{r}
-boost_spec <- boost_tree(trees= tune(), tree_depth = 4) %>%
+boost_spec <- boost_tree(min_n = tune()) %>%
   set_engine("xgboost") %>%   
   set_mode("classification")
 ```
 
-Next, I set up the workflow adding the model. 
+Next, I set up the workflow adding the model. I again chose the small level to save time.
 
 ```{r}
-boost_wf <- workflow %>% 
+boost_wf <- workflow() %>% 
   add_recipe(recipe) %>% 
   add_model(boost_spec)
 
-grid4 <- grid_regular(trees(range = c(1000, 3000)), levels = c(trees = 3))
+grid4 <- grid_regular(min_n(range = c(2, 40)), levels=2)
 ```
 
 Now I should show which values of tree appear to produce the highest ROC_AUC.
@@ -359,14 +361,14 @@ tune_res4 <- tune_grid(
 save(tune_res4, file="model4.rda")
 ```
 
-```{r}
+```{r, eval=F}
 load(file="model4.rda")
 autoplot(tune_res4)
 ```
 
 I choose the best mtry, and finalize the workflow by updating the value and the fit the model with the full training data set.
 
-```{r}
+```{r, eval=F}
 best4 <- select_best(tune_res4)
 
 boost_final <- finalize_workflow(boost_wf, best4)
@@ -380,7 +382,7 @@ save(boost_final_fit, file="model4fit.rda")
 
 To compare with the other models, I derive the ROC_AUC based on the training model. 
 
-```{r}
+```{r, eval=F}
 load(file="model4fit.rda")
 augment(boost_final_fit, new_data = data_train) %>%
   roc_auc(health, .pred_excellent:.pred_verygood)
@@ -389,31 +391,37 @@ augment(boost_final_fit, new_data = data_train) %>%
 
 # Results of the Best Model and Performance
 
-The best model that shows the highest ROC_AUC is . Therefore, I fit this model to test set.
+Unfortunately, I could only compare elastic net model and classification tree model. Among them, the one that shows the highest ROC_AUC is elastic net model. Therefore, I fit this model to test set.
 ```{r}
-augment(boost_final_fit, new_data = data_test) %>%
-  conf_mat(truth = health, estimate = .pred_class)
-
-augment(boost_final_fit, new_data = data_test) %>%
+augment(elastic_net_final_fit, new_data = data_test) %>%
   accuracy(truth = health, estimate = .pred_class)
+
+augment(elastic_net_final_fit, new_data = data_test) %>%
+  roc_auc(health, .pred_excellent:.pred_verygood)
+
+predicted_data <- augment(elastic_net_final_fit, new_data = data_test) %>% 
+  select(health, starts_with(".pred"))
+
+predicted_data %>% 
+  conf_mat(truth = health, estimate = .pred_class) %>%
+  autoplot(type = "heatmap")
 ```
+
+The final model shows the accuracy of 0.5778364, and ROC_AUC of 0.6352697. The heatmap shows that it predicts 'excellent' very well, but tend to overestimate the health status even when the truth value if just 'very good' or 'good'. However, it was interesting that the model is differentiating 'fair' and 'poor' more meaningfully from better health status, although it was still overestimating the health status to 'excellent'. I guess this is due to that already imbalanced health outcomes skewed toward 'excellent' from the start. 
 
 I can also plot ROC curves, one per level of the outcome. 
 
 ```{r}
-augment(boost_final_fit, new_data = data_test)%>%
+augment(elastic_net_final_fit, new_data = data_test)%>%
   roc_curve(health, .pred_excellent:.pred_verygood) %>%
   autoplot()
 ```
 
-In addition, I can draw a heatmap.
+In the ROC curves, the result shows that the model is worst at identifying 'very good' health status, while best at identifying 'poor', 'fair', and 'good' in order. Surprisingly, the model was not that good at identifying 'excellent' since it predicts other truth values to 'excellent' too often. 
 
-```{r}
-augment(boost_final_fit, new_data = data_test)%>%
-  roc_curve(health, .pred_excellent:.pred_verygood) %>%
-  autoplot(type="heatmap")
-```
 
 # Conclusion
-Throughout the research, the best model to predict a child's health status using information about family background is a random forest, but it was not perfect.
+Throughout the research, the best model to predict a child's health status using information about family background is a elastic net model, but it was not perfect. It was an interesting analysis learning that I could predict a child's health status based on family background information. Although it makes sense intuitively, since we expect better home environment will guarantee better health for children, checking whether prediction actually works with the real data was fascinating experience. 
+
+One thing I thought it would have been better was that the result could have been more accurate if I used any quantitative data about health status. Unfortunately, my data source was concentrated in qualitative data since it was survey data. There was variables about bmi, height, weight, but they all had missing values for young children. I think supplementing such data would be a good idea to proceed further research in this topic and can give more insights for predicting more important information about a child's health status.
 
